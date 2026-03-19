@@ -61,6 +61,13 @@ jobs:
           }
           EOF
 
+      - name: Install flyctl
+        run: |
+          if [ -f "scripts/claude-queue-hooks.sh" ]; then
+            curl -L https://fly.io/install.sh | sh
+            echo "$HOME/.fly/bin" >> $GITHUB_PATH
+          fi
+
       - name: Poll Telegram and dispatch commands
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -69,7 +76,18 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           REPO: ${{ github.repository }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
+          # Source project-specific hooks if they exist
+          HOOKS_FILE="scripts/claude-queue-hooks.sh"
+          if [ -f "$HOOKS_FILE" ]; then
+            echo "Loading project hooks from $HOOKS_FILE"
+            source "$HOOKS_FILE"
+            HAS_HOOKS=true
+          else
+            HAS_HOOKS=false
+          fi
+
           send_reply() {
             bash .claude-queue/scripts/notify-telegram.sh "$1" || true
           }
@@ -161,8 +179,48 @@ jobs:
               gh workflow run queue-processor.yml --repo "$REPO" -f issue_override="$ISSUE" || \
                 send_reply "Could not trigger implement workflow for issue #${ISSUE}."
 
+            elif [[ "$CMD_LOWER" == "deploy" ]]; then
+              if [[ "$HAS_HOOKS" == "true" ]] && declare -f deploy_production > /dev/null; then
+                send_reply "Deploying to production -- this may take a few minutes..."
+                if deploy_production 2>&1 | tee /tmp/deploy-output.txt; then
+                  send_reply "Production deploy complete."
+                else
+                  send_reply "$(printf 'Deploy failed -- check GitHub Actions for details.\n\nhttps://github.com/%s/actions' "$REPO")"
+                fi
+              else
+                send_reply "No deploy hook configured. Add deploy_production() to scripts/claude-queue-hooks.sh"
+              fi
+
+            elif [[ "$CMD_LOWER" == "staging" ]]; then
+              if [[ "$HAS_HOOKS" == "true" ]] && declare -f deploy_staging > /dev/null; then
+                send_reply "Deploying to staging -- this may take a few minutes..."
+                if deploy_staging 2>&1 | tee /tmp/staging-output.txt; then
+                  send_reply "Staging deploy complete."
+                else
+                  send_reply "$(printf 'Staging deploy failed -- check GitHub Actions for details.\n\nhttps://github.com/%s/actions' "$REPO")"
+                fi
+              else
+                send_reply "No staging hook configured. Add deploy_staging() to scripts/claude-queue-hooks.sh"
+              fi
+
+            elif [[ "$CMD_LOWER" == "health" ]]; then
+              if [[ "$HAS_HOOKS" == "true" ]] && declare -f health_check > /dev/null; then
+                RESULT=$(health_check 2>&1)
+                send_reply "$(printf 'Health check:\n%s' "$RESULT")"
+              else
+                send_reply "No health hook configured. Add health_check() to scripts/claude-queue-hooks.sh"
+              fi
+
+            elif [[ "$CMD_LOWER" == "staging-health" ]]; then
+              if [[ "$HAS_HOOKS" == "true" ]] && declare -f staging_health_check > /dev/null; then
+                RESULT=$(staging_health_check 2>&1)
+                send_reply "$(printf 'Staging health check:\n%s' "$RESULT")"
+              else
+                send_reply "No staging-health hook configured. Add staging_health_check() to scripts/claude-queue-hooks.sh"
+              fi
+
             elif [[ "$CMD_LOWER" =~ ^(help|\?)$ ]]; then
-              send_reply "Commands: merge <PR> | rev <PR> | implement <N> | queue <N> [N...] | queue | pause | resume | status | help"
+              send_reply "Commands: merge <PR> | rev <PR> | implement <N> | queue <N> [N...] | queue | pause | resume | status | deploy | staging | health | staging-health | help"
 
             else
               send_reply "Unknown command: '${CMD}'. Send 'help' for a list of commands."
