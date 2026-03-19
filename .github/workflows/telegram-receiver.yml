@@ -11,6 +11,8 @@ on:
         required: true
       GH_PAT:
         required: true
+      FLY_API_TOKEN:
+        required: false
 
 jobs:
   receive:
