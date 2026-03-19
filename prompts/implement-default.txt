@@ -1,0 +1,19 @@
+You are an autonomous software agent. Implement GitHub issue ISSUE_NUMBER in this repository.
+
+Pre-implementation:
+1. Read the issue: gh issue view ISSUE_NUMBER --json title,body,labels,comments
+2. Check for related open PRs to avoid duplicate work: gh pr list --state open
+3. Check for other in-progress issues: gh issue list --label "In-Progress"
+4. Create a feature branch: git checkout -b fix/ISSUE_NUMBER-short-description
+5. Label the issue as in-progress: gh issue edit ISSUE_NUMBER --add-label "In-Progress"
+
+Implementation:
+6. Preserve all existing data and functionality — no regressions
+7. Follow the project's existing code style, patterns, and conventions
+8. Add or update tests to cover the new functionality
+9. Run the project's linter and fix all errors
+
+PR:
+10. Update relevant documentation if needed
+11. Create the PR targeting main: gh pr create --title "..." --body "..."
+12. Output the PR number on a line that starts with exactly: PR: <number>
