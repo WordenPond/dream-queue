@@ -1,4 +1,4 @@
-# claude-queue
+# dream-queue
 
 AI-powered issue implementation queue for GitHub repos, controlled via Telegram. Send a message, get a PR.
 
@@ -57,7 +57,7 @@ concurrency:
 
 jobs:
   receive:
-    uses: WordenPond/claude-queue/.github/workflows/telegram-receiver.yml@main
+    uses: WordenPond/dream-queue/.github/workflows/telegram-receiver.yml@main
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -80,7 +80,7 @@ on:
 
 jobs:
   run-queue:
-    uses: WordenPond/claude-queue/.github/workflows/queue-processor.yml@main
+    uses: WordenPond/dream-queue/.github/workflows/queue-processor.yml@main
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -101,7 +101,7 @@ on:
 
 jobs:
   implement:
-    uses: WordenPond/claude-queue/.github/workflows/implement-issue.yml@main
+    uses: WordenPond/dream-queue/.github/workflows/implement-issue.yml@main
     with:
       issue_number: ${{ github.event.inputs.issue_number }}
     secrets:
@@ -125,13 +125,13 @@ Create a `QUEUE.md` at your repo root:
 
 ### 5. Customize the implement prompt (optional)
 
-By default, claude-queue uses [`prompts/implement-default.txt`](prompts/implement-default.txt) — a generic prompt that works for most projects.
+By default, dream-queue uses [`prompts/implement-default.txt`](prompts/implement-default.txt) — a generic prompt that works for most projects.
 
-To customize for your project, create `.github/prompts/implement.txt` in your repo. Reference your own docs, conventions, and rules. claude-queue will automatically use your file if it exists.
+To customize for your project, create `.github/prompts/implement.txt` in your repo. Reference your own docs, conventions, and rules. dream-queue will automatically use your file if it exists.
 
 ### 6. Add project hooks (optional)
 
-To enable the `deploy`, `staging`, and `health` Telegram commands, create `scripts/claude-queue-hooks.sh` in your repo and define one or more of these shell functions:
+To enable the `deploy`, `staging`, and `health` Telegram commands, create `scripts/dream-queue-hooks.sh` in your repo and define one or more of these shell functions:
 
 ```bash
 deploy_production() {
@@ -179,17 +179,17 @@ The hooks file is sourced at the start of every Telegram receiver run. Only defi
 ```
 Your repo
 ├── .github/workflows/
-│   ├── queue-processor.yml     (thin wrapper → calls claude-queue)
-│   ├── implement-issue.yml     (thin wrapper → calls claude-queue)
-│   └── telegram-receiver.yml   (thin wrapper → calls claude-queue)
+│   ├── queue-processor.yml     (thin wrapper → calls dream-queue)
+│   ├── implement-issue.yml     (thin wrapper → calls dream-queue)
+│   └── telegram-receiver.yml   (thin wrapper → calls dream-queue)
 ├── .github/prompts/
 │   └── implement.txt           (optional: your custom prompt)
 ├── scripts/
-│   └── claude-queue-hooks.sh   (optional: deploy/health hooks)
+│   └── dream-queue-hooks.sh   (optional: deploy/health hooks)
 ├── QUEUE.md                    (the issue queue)
 └── .telegram-last-id           (persists Telegram poll offset)
 
-WordenPond/claude-queue         (this repo — shared logic)
+WordenPond/dream-queue         (this repo — shared logic)
 ├── .github/workflows/
 │   ├── queue-processor.yml     (reusable workflow)
 │   ├── implement-issue.yml     (reusable workflow)
