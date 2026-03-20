@@ -38,7 +38,7 @@ jobs:
       - name: Checkout telegram-code-bot (scripts)
         uses: actions/checkout@v4
         with:
-          repository: WordenPond/claude-queue
+          repository: WordenPond/dream-queue
           path: .telegram-code-bot
 
       - name: Configure git
