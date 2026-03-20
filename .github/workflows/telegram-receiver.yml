@@ -33,11 +33,11 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
-      - name: Checkout claude-queue (scripts)
+      - name: Checkout dream-queue (scripts)
         uses: actions/checkout@v4
         with:
-          repository: WordenPond/claude-queue
-          path: .claude-queue
+          repository: WordenPond/dream-queue
+          path: .dream-queue
           fetch-depth: 1
 
       - name: Configure git
@@ -63,7 +63,7 @@ jobs:
           fi
 
           send_reply() {
-            bash .claude-queue/scripts/notify-telegram.sh "$1" || true
+            bash .dream-queue/scripts/notify-telegram.sh "$1" || true
           }
 
           trigger_workflow() {
@@ -240,7 +240,7 @@ jobs:
               "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${OFFSET}&timeout=${POLL_TIMEOUT}" \
               -o /tmp/telegram-updates.json
 
-            eval "$(python3 .claude-queue/scripts/parse_telegram.py)"
+            eval "$(python3 .dream-queue/scripts/parse_telegram.py)"
 
             if [[ "$NEW_LAST_ID" != "$LAST_ID" ]]; then
               LAST_ID="$NEW_LAST_ID"
