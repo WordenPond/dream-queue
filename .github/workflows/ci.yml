@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test-python:
+    name: Python unit tests (parse_telegram.py)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pytest
+        run: pip install pytest
+      - name: Run pytest
+        run: pytest tests/test_parse_telegram.py -v
+
+  test-bash:
+    name: Bash unit tests (queue logic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run queue logic tests
+        run: bash tests/test_queue_logic.sh
+
+  lint-shell:
+    name: Shell lint (shellcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+      - name: Lint notify-telegram.sh
+        run: shellcheck scripts/notify-telegram.sh
+      - name: Lint test_queue_logic.sh
+        run: shellcheck tests/test_queue_logic.sh
