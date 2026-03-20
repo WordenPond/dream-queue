@@ -13,7 +13,19 @@ Built on [Claude Code](https://github.com/anthropics/claude-code) + GitHub Actio
 
 ## Setup
 
-### 1. Add secrets to your repo
+### 1. Create a Telegram bot
+
+1. Open Telegram and message [@BotFather](https://t.me/BotFather)
+2. Send `/newbot` and follow the prompts (choose a name and username)
+3. BotFather will give you a **bot token** — save it
+4. Message your new bot once (so it has a chat with you)
+5. Visit this URL to get your **chat ID**:
+   ```
+   https://api.telegram.org/bot<BOT_TOKEN>/getUpdates
+   ```
+   Look for `"chat": {"id": <YOUR_CHAT_ID>}` in the response
+
+### 2. Add secrets to your repo
 
 Go to **Settings → Secrets → Actions** and add:
 
@@ -25,26 +37,81 @@ Go to **Settings → Secrets → Actions** and add:
 | `GH_PAT` | GitHub Personal Access Token with `repo` + `actions:write` scopes |
 | `FLY_API_TOKEN` | *(Optional)* Fly.io API token, only needed if using deploy hooks |
 
-**Getting your chat ID:** Message your bot, then visit:
+
+### 3. Add workflow files to your repo
+
+Create these three files in `.github/workflows/`:
+
+**`.github/workflows/telegram-receiver.yml`**
+```yaml
+name: Telegram Receiver
+
+on:
+  schedule:
+    - cron: '* * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: telegram-receiver
+  cancel-in-progress: false
+
+jobs:
+  receive:
+    uses: WordenPond/claude-queue/.github/workflows/telegram-receiver.yml@main
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GH_PAT: ${{ secrets.GH_PAT }}
+      # FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}  # uncomment if using deploy hooks
 ```
-https://api.telegram.org/bot<BOT_TOKEN>/getUpdates
+
+**`.github/workflows/queue-processor.yml`**
+```yaml
+name: Queue Runner
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "QUEUE.md"
+
+jobs:
+  run-queue:
+    uses: WordenPond/claude-queue/.github/workflows/queue-processor.yml@main
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GH_PAT: ${{ secrets.GH_PAT }}
 ```
-Look for `"chat": {"id": <YOUR_CHAT_ID>}`.
 
-### 2. Add workflow files to your repo
+**`.github/workflows/implement-issue.yml`**
+```yaml
+name: Implement Issue
 
-Copy the three files from [`examples/`](examples/) into your repo's `.github/workflows/`:
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'GitHub issue number to implement'
+        required: true
 
+jobs:
+  implement:
+    uses: WordenPond/claude-queue/.github/workflows/implement-issue.yml@main
+    with:
+      issue_number: ${{ github.event.inputs.issue_number }}
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GH_PAT: ${{ secrets.GH_PAT }}
 ```
-.github/workflows/
-├── queue-processor.yml    ← copy from examples/
-├── implement-issue.yml    ← copy from examples/
-└── telegram-receiver.yml  ← copy from examples/
-```
 
-Each example file is a thin wrapper that calls the shared logic in this repo via `workflow_call` and passes secrets through with `secrets: inherit`.
-
-### 3. Add QUEUE.md
+### 4. Add QUEUE.md
 
 Create a `QUEUE.md` at your repo root:
 
@@ -56,13 +123,13 @@ Create a `QUEUE.md` at your repo root:
 <!-- Add issues below — one per line, highest priority first -->
 ```
 
-### 4. Customize the implement prompt (optional)
+### 5. Customize the implement prompt (optional)
 
 By default, claude-queue uses [`prompts/implement-default.txt`](prompts/implement-default.txt) — a generic prompt that works for most projects.
 
 To customize for your project, create `.github/prompts/implement.txt` in your repo. Reference your own docs, conventions, and rules. claude-queue will automatically use your file if it exists.
 
-### 5. Add project hooks (optional)
+### 6. Add project hooks (optional)
 
 To enable the `deploy`, `staging`, and `health` Telegram commands, create `scripts/claude-queue-hooks.sh` in your repo and define one or more of these shell functions:
 
