@@ -17,6 +17,188 @@ jobs:
     name: Process incoming Telegram commands
     runs-on: ubuntu-latest
     timeout-minutes: 5
+
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
     steps:
-      - name: Test
-        run: echo "Hello"
+      - name: Checkout caller repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+          fetch-depth: 0
+
+      - name: Checkout claude-queue (scripts)
+        uses: actions/checkout@v4
+        with:
+          repository: WordenPond/claude-queue
+          path: .claude-queue
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Configure Claude permissions
+        run: |
+          mkdir -p .claude
+          cat > .claude/settings.json << 'EOF'
+          {
+            "permissions": {
+              "allow": ["Bash(*)", "Read(*)", "Write(*)", "Edit(*)", "Glob(*)", "Grep(*)"],
+              "deny": []
+            }
+          }
+          EOF
+
+      - name: Poll Telegram and dispatch commands
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+        run: |
+          send_reply() {
+            bash .claude-queue/scripts/notify-telegram.sh "$1" || true
+          }
+
+          run_review() {
+            local PR="$1"
+            gh pr checkout "$PR"
+            claude --print "Review PR #${PR} and resolve ALL issues or recommendations found in the diff and any automated checks. For each problem found: fix it in the code, commit the fix to the PR branch, and push. Do not create new GitHub issues for suggestions -- fix them directly in this PR. When all issues are resolved, output: REVIEW_COMPLETE"
+          }
+
+          dispatch_command() {
+            local CMD="$1"
+            CMD_LOWER=$(echo "$CMD" | tr '[:upper:]' '[:lower:]' | xargs)
+            echo "Command: '$CMD_LOWER'"
+
+            if [[ "$CMD_LOWER" =~ ^merge[[:space:]]+([0-9]+)$ ]]; then
+              PR="${BASH_REMATCH[1]}"
+              if gh pr merge "$PR" --squash --repo "$REPO" 2>&1; then
+                send_reply "PR #${PR} merged. Triggering next queue item..."
+                gh workflow run queue-processor.yml --repo "$REPO" || true
+              else
+                send_reply "Could not merge PR #${PR} -- check GitHub for details."
+              fi
+
+            elif [[ "$CMD_LOWER" =~ ^/?rev[[:space:]]+([0-9]+)$ ]]; then
+              PR="${BASH_REMATCH[1]}"
+              send_reply "Running /rev on PR #${PR} -- this may take a few minutes..."
+              PR_URL="https://github.com/${REPO}/pull/${PR}"
+              if run_review "$PR"; then
+                send_reply "$(printf '/rev complete on PR #%s.\n\n%s' "$PR" "$PR_URL")"
+              else
+                send_reply "$(printf '/rev finished on PR #%s with warnings -- check GitHub Actions for details.\n\n%s' "$PR" "$PR_URL")"
+              fi
+
+            elif [[ "$CMD_LOWER" =~ ^queue[[:space:]]+([0-9 ]+)$ ]]; then
+              ISSUES="${BASH_REMATCH[1]}"
+              git pull --rebase origin main --quiet || true
+              ADDED=""
+              for NUM in $ISSUES; do
+                if ! grep -qE "^\- \[.\] #${NUM}$" QUEUE.md; then
+                  sed -i "/^## Queue/a - [ ] #${NUM}" QUEUE.md
+                  ADDED="$ADDED #$NUM"
+                fi
+              done
+              if [[ -n "$ADDED" ]]; then
+                git add QUEUE.md
+                git commit -m "chore: add${ADDED} to queue via Telegram [skip ci]"
+                git push origin main --quiet || true
+                send_reply "Added to queue:${ADDED}"
+              else
+                send_reply "All issues already in queue."
+              fi
+
+            elif [[ "$CMD_LOWER" =~ ^(queue|run)$ ]]; then
+              gh workflow run queue-processor.yml --repo "$REPO" || true
+              send_reply "Queue runner triggered."
+
+            elif [[ "$CMD_LOWER" == "pause" ]]; then
+              git pull --rebase origin main || true
+              touch .queue-paused
+              git add .queue-paused
+              git commit -m "chore: pause queue [skip ci]" || true
+              git push origin main
+              send_reply "Queue paused. Send 'resume' to continue."
+
+            elif [[ "$CMD_LOWER" == "resume" ]]; then
+              git pull --rebase origin main || true
+              if [[ -f ".queue-paused" ]]; then
+                git rm .queue-paused
+                git commit -m "chore: resume queue [skip ci]" || true
+                git push origin main
+              fi
+              gh workflow run queue-processor.yml --repo "$REPO" || true
+              send_reply "Queue resumed."
+
+            elif [[ "$CMD_LOWER" == "status" ]]; then
+              git pull --rebase origin main || true
+              PENDING=$(grep -c '^\- \[ \]' QUEUE.md 2>/dev/null || echo 0)
+              DONE=$(grep -c '^\- \[x\]' QUEUE.md 2>/dev/null || echo 0)
+              NEXT=$(awk '/^## Queue/{f=1} f && /^\- \[ \] #[0-9]/{print; exit}' QUEUE.md \
+                    | grep -oP '#\K[0-9]+' || echo "none")
+              PAUSED_FLAG=""
+              [[ -f ".queue-paused" ]] && PAUSED_FLAG=" PAUSED"
+              send_reply "Queue${PAUSED_FLAG}: ${PENDING} pending, ${DONE} done. Next: #${NEXT}"
+
+            elif [[ "$CMD_LOWER" =~ ^implement[[:space:]]+([0-9]+)$ ]]; then
+              ISSUE="${BASH_REMATCH[1]}"
+              send_reply "Starting implementation of issue #${ISSUE} -- I will message you when the PR is ready."
+              gh workflow run queue-processor.yml --repo "$REPO" -f issue_override="$ISSUE" || \
+                send_reply "Could not trigger implement workflow for issue #${ISSUE}."
+
+            elif [[ "$CMD_LOWER" =~ ^(help|\?)$ ]]; then
+              send_reply "Commands: merge <PR> | rev <PR> | implement <N> | queue <N> [N...] | queue | pause | resume | status | help"
+
+            else
+              send_reply "Unknown command: '${CMD}'. Send 'help' for a list of commands."
+            fi
+          }
+
+          DEADLINE=$(( $(date +%s) + 50 ))
+          git pull --rebase origin main --quiet || true
+          LAST_ID=$(cat .telegram-last-id 2>/dev/null | grep -E '^[0-9]+$' || echo "0")
+
+          while [[ $(date +%s) -lt $DEADLINE ]]; do
+            OFFSET=$(( LAST_ID + 1 ))
+
+            curl -s --max-time 8 \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${OFFSET}&timeout=0" \
+              -o /tmp/telegram-updates.json
+
+            eval "$(python3 .claude-queue/scripts/parse_telegram.py)"
+
+            if [[ "$NEW_LAST_ID" != "$LAST_ID" ]]; then
+              LAST_ID="$NEW_LAST_ID"
+              echo "$LAST_ID" > .telegram-last-id
+              git add .telegram-last-id
+              git diff --cached --quiet || git commit -m "chore: update telegram offset [skip ci]"
+              git push origin main --quiet || true
+            fi
+
+            if [[ -n "$COMMANDS_B64" ]]; then
+              COMMANDS=$(echo "$COMMANDS_B64" | base64 -d)
+              if [[ -n "$COMMANDS" ]]; then
+                while IFS= read -r CMD; do
+                  [[ -z "$CMD" ]] && continue
+                  dispatch_command "$CMD"
+                done <<< "$COMMANDS"
+              fi
+            fi
+
+            sleep 10
+          done
